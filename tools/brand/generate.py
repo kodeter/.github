@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Extract the official Kodeter mark and build the organization banner.
+"""Generate the Kodeter brand assets: banner and logo.
 
 Source of truth: the organization avatar already set on github.com/kodeter
 (black plate, white geometric K). This script reuses that shape instead of
-inventing a new one.
+inventing a new one, and the banner style follows the same rules as the mark:
+pure black and white, hard edges, one geometric gesture.
 
 Inputs
   assets/logo-source.png   downloaded copy of the org avatar (460x460)
@@ -20,27 +21,22 @@ Run from this folder:
 import math
 import os
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 W, H = 2000, 1000
 
-INK_TOP = (6, 8, 10)
-INK_BOTTOM = (13, 16, 19)
-GRID = (26, 29, 33)
-GRID_STRONG = (38, 43, 48)
-STEEL = (150, 163, 174)
-STEEL_DIM = (58, 66, 74)
-TEXT = (245, 247, 249)
-MUTED = (166, 176, 185)
-AMBER = (240, 170, 44)
-AMBER_DIM = (120, 86, 28)
+BLACK = (10, 10, 10)
+WHITE = (255, 255, 255)
+GREY_20 = (51, 51, 51)
+GREY_35 = (89, 89, 89)
+GREY_55 = (140, 140, 140)
 
 FONT_DIR = "/home/lendra/.fonts/IBM Plex"
 MONO_DIR = "/home/lendra/.fonts/Jetbrains"
+GEOMETRIC = "/usr/share/fonts/julietaula-montserrat-fonts"
 
 WORDS = "KODETER"
 CAPTION = "an open community for people who build and ship software"
-TAGS = "CODE  ·  INFRA  ·  DOCS  ·  MENTORING"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -62,32 +58,6 @@ def tracked(draw, xy, text, fnt, fill, tracking, anchor="la"):
     return total
 
 
-def vertical_gradient(size, top, bottom):
-    w, h = size
-    img = Image.new("RGB", (1, h))
-    px = img.load()
-    for y in range(h):
-        t = y / max(h - 1, 1)
-        px[0, y] = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3))
-    return img.resize((w, h), Image.BILINEAR)
-
-
-def radial_glow(size, center, radius, color, strength=0.5):
-    w, h = size
-    layer = Image.new("L", (w, h), 0)
-    d = ImageDraw.Draw(layer)
-    cx, cy = center
-    steps = 48
-    for i in range(steps, 0, -1):
-        t = i / steps
-        r = radius * t
-        v = int(255 * strength * (1 - t) ** 2)
-        d.ellipse([cx - r, cy - r * 0.72, cx + r, cy + r * 0.72], fill=v)
-    layer = layer.filter(ImageFilter.GaussianBlur(radius * 0.25))
-    glow = Image.new("RGB", (w, h), color)
-    return glow, layer
-
-
 def extract_mark(source_path):
     """White shape of the org logo on a transparent ground, tightly cropped."""
     src = Image.open(source_path).convert("L")
@@ -96,8 +66,6 @@ def extract_mark(source_path):
     if box is None:
         raise SystemExit(f"no mark found in {source_path}")
     mask = mask.crop(box)
-    out = Image.new("RGBA", mask.size, (0, 0, 0, 0))
-    out.putalpha(mask)
     white = Image.new("RGBA", mask.size, (255, 255, 255, 0))
     white.putalpha(mask)
     return white
@@ -108,102 +76,79 @@ def paste_mark(img, mark, cx, cy, height):
     size = (max(1, int(mark.width * ratio)), height)
     scaled = mark.resize(size, Image.LANCZOS)
     img.alpha_composite(scaled, (int(cx - size[0] / 2), int(cy - size[1] / 2)))
+    return size
+
+
+def polyline(draw, points, fill, width):
+    draw.line(points, fill=fill, width=width, joint="curve")
 
 
 def build_banner(path, mark):
-    img = vertical_gradient((W, H), INK_TOP, INK_BOTTOM).convert("RGBA")
-    glow, mask = radial_glow((W, H), (1450, 400), 880, (30, 36, 44), 0.85)
-    img = Image.composite(glow, img, mask)
+    img = Image.new("RGBA", (W, H), BLACK + (255,))
 
-    grid = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(grid)
-    for x in range(0, W + 1, 40):
-        gd.line([(x, 0), (x, H)], fill=GRID + (95,), width=1)
-    for y in range(0, H + 1, 40):
-        gd.line([(0, y), (W, y)], fill=GRID + (95,), width=1)
-    for x in range(0, W + 1, 200):
-        gd.line([(x, 0), (x, H)], fill=GRID_STRONG + (130,), width=1)
-    for y in range(0, H + 1, 200):
-        gd.line([(0, y), (W, y)], fill=GRID_STRONG + (130,), width=1)
-    img = Image.alpha_composite(img, grid)
+    # Diagonal construction lines at the arm angles of the mark, right side only.
+    lines = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(lines)
+    for offset in (-420, -140, 140, 420):
+        ld.line([(1240 + offset, 0), (1240 + offset + 780, 780)], fill=GREY_20 + (255,), width=2)
+        ld.line([(1240 + offset, H), (1240 + offset - 780, 220)], fill=GREY_20 + (255,), width=2)
+    clip = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(clip).rectangle([1236, 0, W, H], fill=255)
+    lines.putalpha(ImageChops.multiply(lines.getchannel("A"), clip))
+    img = Image.alpha_composite(img, lines)
 
-    field = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    fd = ImageDraw.Draw(field)
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
 
-    base_y = 810
-    left, right = 1230, 1900
-    cols = 26
-    step = (right - left) / (cols - 1)
-    heights = []
-    for i in range(cols):
-        t = i / (cols - 1)
-        wave = (
-            math.sin(t * math.pi * 3.1 + 0.6) * 0.5
-            + math.sin(t * math.pi * 8.7 + 1.9) * 0.28
-            + math.sin(t * math.pi * 17.3 + 0.2) * 0.14
-        )
-        heights.append(70 + abs(wave) * 430)
+    # The mark sits in a black plate on the right, mirroring the org avatar.
+    plate_x, plate_y, plate = 1360, 140, 520
+    d.rectangle([plate_x, plate_y, plate_x + plate, plate_y + plate], fill=BLACK + (255,))
+    d.rectangle(
+        [plate_x, plate_y, plate_x + plate, plate_y + plate], outline=GREY_20 + (255,), width=3
+    )
+    img = Image.alpha_composite(img, layer)
 
-    fd.line([(left - 40, base_y), (right + 40, base_y)], fill=STEEL_DIM + (170,), width=2)
-    pts = []
-    for i, hgt in enumerate(heights):
-        x = left + i * step
-        y = base_y - hgt
-        hot = (i * 7) % 11 in (0, 3, 6)
-        fd.line(
-            [(x, base_y), (x, y)],
-            fill=(AMBER if hot else STEEL_DIM) + (215 if hot else 160,),
-            width=3 if hot else 2,
-        )
-        fd.ellipse([x - 5, y - 5, x + 5, y + 5], fill=(AMBER if hot else STEEL) + (240,))
-        pts.append((x, y))
-    fd.line(pts, fill=STEEL + (85,), width=2, joint="curve")
+    paste_mark(img, mark, plate_x + plate / 2, plate_y + plate / 2, 360)
 
-    thr = base_y - 255
-    for x in range(left - 60, right + 60, 22):
-        fd.line([(x, thr), (x + 12, thr)], fill=AMBER_DIM + (185,), width=2)
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
 
-    cal_x = right + 76
-    fd.line([(cal_x, base_y - 520), (cal_x, base_y)], fill=STEEL_DIM + (170,), width=2)
-    for i in range(8):
-        y = base_y - i * 65
-        fd.line([(cal_x, y), (cal_x + (16 if i % 2 == 0 else 9), y)], fill=STEEL_DIM + (170,), width=2)
+    # Baseline and cap-height rules for the wordmark block.
+    d.line([(150, 742), (1180, 742)], fill=GREY_35 + (255,), width=2)
+    d.line([(150, 232), (1180, 232)], fill=GREY_20 + (255,), width=2)
 
-    img = Image.alpha_composite(img, field)
+    # Type block, left aligned, matching the mark's flat geometry.
+    word = font(f"{GEOMETRIC}/Montserrat-ExtraBold.otf", 196)
+    tracked(d, (150, 236), WORDS, word, WHITE, 6)
 
-    fg = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    fd = ImageDraw.Draw(fg)
+    rule_y = 500
+    d.rectangle([150, rule_y, 150 + 150, rule_y + 8], fill=WHITE)
 
-    mono_s = font(f"{MONO_DIR}/JetBrainsMono-Regular.ttf", 24)
-    mono_xs = font(f"{MONO_DIR}/JetBrainsMono-Regular.ttf", 20)
-    mono_t = font(f"{MONO_DIR}/JetBrainsMono-Medium.ttf", 21)
-    word = font(f"{FONT_DIR}/IBMPlexSans-Bold.ttf", 168)
-    cap = font(f"{FONT_DIR}/IBMPlexSans-Light.ttf", 38)
+    cap = font(f"{GEOMETRIC}/Montserrat-Light.otf", 34)
+    d.text((150, 548), CAPTION, font=cap, fill=GREY_55)
+    # Monospace annotations, the only typographic contrast to the geometric sans.
+    mono_s = font(f"{MONO_DIR}/JetBrainsMono-Regular.ttf", 22)
+    mono_xs = font(f"{MONO_DIR}/JetBrainsMono-Regular.ttf", 18)
+    mono_m = font(f"{MONO_DIR}/JetBrainsMono-Medium.ttf", 20)
 
-    fd.text((150, 150), "ORG", font=mono_s, fill=AMBER)
-    tracked(fd, (150 + 74, 150), "· INDONESIA · EST 2024", mono_s, STEEL, 3)
+    tracked(d, (150, 150), "ORG", mono_m, WHITE, 3)
+    tracked(d, (150 + 66, 150), "· INDONESIA · EST 2024", mono_s, GREY_55, 3)
 
-    tracked(fd, (150, 232), WORDS, word, TEXT, 20)
-    fd.rectangle([150, 452, 150 + 128, 456], fill=AMBER)
-    fd.text((150, 492), CAPTION, font=cap, fill=MUTED)
-    tracked(fd, (150, 578), TAGS, mono_t, STEEL, 3)
+    tracked(d, (150, 786), "CODE  ·  INFRA  ·  DOCS  ·  MENTORING", mono_s, GREY_55, 3)
 
-    fd.text((150, 872), "FIG. 01", font=mono_xs, fill=STEEL)
-    tracked(fd, (150 + 92, 872), "· PROFILE SIGNAL", mono_xs, STEEL_DIM, 2)
+    d.text((150, 872), "FIG. 01", font=mono_xs, fill=GREY_35)
+    tracked(d, (150 + 84, 872), "· PROFILE MARK", mono_xs, GREY_35, 2)
 
-    tracked(fd, (right - 128, thr - 34), "THRESHOLD", mono_xs, AMBER_DIM, 2)
+    tracked(d, (W - 150, 872), "KODETER.ORG", mono_xs, GREY_35, 2, anchor="ra")
 
-    tracked(fd, (W - 150, 872), "SNAPSHOT 2026", mono_xs, STEEL_DIM, 2, anchor="ra")
-
+    # Corner registration marks, same weight as the plate outline.
     for cx, cy in ((150, 96), (W - 150, 96), (150, H - 60), (W - 150, H - 60)):
-        fd.line([(cx - 13, cy), (cx + 13, cy)], fill=STEEL_DIM + (170,), width=1)
-        fd.line([(cx, cy - 13), (cx, cy + 13)], fill=STEEL_DIM + (170,), width=1)
+        d.line([(cx - 16, cy), (cx + 16, cy)], fill=GREY_20 + (255,), width=2)
+        d.line([(cx, cy - 16), (cx, cy + 16)], fill=GREY_20 + (255,), width=2)
 
-    img = Image.alpha_composite(img, fg)
-
-    # Official mark, white on the ink ground.
-    paste_mark(img, mark, 1660, 250, 158)
-    return img.convert("RGB")
+    img = Image.alpha_composite(img, layer).convert("RGB")
+    img.save(path, "PNG", optimize=True)
+    return img
 
 
 def main():
@@ -220,7 +165,6 @@ def main():
     )
 
     banner = build_banner(os.path.join(images, "banner.png"), mark)
-    banner.save(os.path.join(images, "banner.png"), "PNG", optimize=True)
 
     assert banner.size == (W, H), banner.size
     for name, min_size in (("banner.png", 20000), ("logo.png", 800), ("profile.png", 2000)):
