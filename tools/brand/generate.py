@@ -131,8 +131,8 @@ def build_banner(path, mark):
     fd = ImageDraw.Draw(field)
 
     base_y = 810
-    left, right = 1150, 1900
-    cols = 30
+    left, right = 1230, 1900
+    cols = 26
     step = (right - left) / (cols - 1)
     heights = []
     for i in range(cols):
